@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Futures Signals</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: dark trading screen — header strip, stat row, candle pane, RSI pane, signal log */
+:root{
+  --bg:#0c1117; --panel:#121a23; --line:#1f2a36; --fg:#e6edf3; --muted:#8b9bab;
+  --accent:#f0b429; --up:#26a69a; --down:#ef5350; --ema1:#f0b429; --ema2:#5b8def;
+  --sans:"IBM Plex Sans Arabic",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font:14px/1.5 var(--sans);
+  padding-left:max(12px,env(safe-area-inset-left,0px));padding-right:max(12px,env(safe-area-inset-right,0px));
+  padding-block:10px;display:flex;flex-direction:column;gap:10px}
+header{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+h1{font-size:15px;font-weight:600;margin:0;letter-spacing:.2px}
+h1 small{color:var(--muted);font-weight:400;margin-inline-start:6px}
+.ctl{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-inline-start:auto}
+input,button{font:inherit;color:var(--fg);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:6px 10px}
+input{font-family:var(--mono);text-transform:uppercase;width:120px;direction:ltr}
+button{cursor:pointer}
+button.on{background:var(--accent);color:#1a1200;border-color:var(--accent);font-weight:600}
+button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.tf{display:flex;gap:4px}
+.tf button{padding:6px 9px;font-family:var(--mono);font-size:12px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-width:0}
+.stat .k{font-size:11px;color:var(--muted);letter-spacing:.4px;text-transform:uppercase}
+.stat .v{font-family:var(--mono);font-size:16px;font-weight:500;font-variant-numeric:tabular-nums;direction:ltr;text-align:right}
+.up{color:var(--up)} .down{color:var(--down)}
+.signal{grid-column:1/-1;display:flex;align-items:center;gap:12px;border-inline-start:4px solid var(--muted)}
+.signal.buy{border-color:var(--up)} .signal.sell{border-color:var(--down)}
+.signal .big{font-size:20px;font-weight:600;font-family:var(--mono)}
+.signal .why{color:var(--muted);font-size:12px;flex:1;min-width:0}
+#main{height:52vh;min-height:300px;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--panel)}
+#rsi{height:140px;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--panel)}
+.legend{display:flex;gap:14px;font-size:12px;color:var(--muted);flex-wrap:wrap}
+.legend i{display:inline-block;width:10px;height:3px;border-radius:2px;vertical-align:middle;margin-inline-end:4px}
+.log{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 10px;max-height:180px;overflow:auto}
+.log h2{font-size:12px;color:var(--muted);margin:0 0 6px;font-weight:500;text-transform:uppercase;letter-spacing:.4px}
+.log table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12px;direction:ltr}
+.log td{padding:3px 4px;border-top:1px solid var(--line);font-variant-numeric:tabular-nums;white-space:nowrap}
+.log td.r{text-align:right}
+#status{font-size:12px;color:var(--muted)}
+#status.err{color:var(--down)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Futures Signals <small>Binance USDⓈ-M · EMA 9/21 + RSI 14</small></h1>
+  <div class="ctl">
+    <input id="sym" value="BTCUSDT" aria-label="الرمز">
+    <button id="go">تحميل</button>
+    <div class="tf" id="tf"></div>
+  </div>
+</header>
+
+<div class="stats">
+  <div class="stat"><div class="k">السعر</div><div class="v" id="px">—</div></div>
+  <div class="stat"><div class="k">24h</div><div class="v" id="chg">—</div></div>
+  <div class="stat"><div class="k">Funding</div><div class="v" id="fund">—</div></div>
+  <div class="stat"><div class="k">RSI 14</div><div class="v" id="rsiv">—</div></div>
+  <div class="stat"><div class="k">EMA 9 / 21</div><div class="v" id="emav">—</div></div>
+  <div class="stat signal" id="sig">
+    <div class="big" id="sigt">—</div>
+    <div class="why" id="sigw">بانتظار البيانات</div>
+    <div class="v" id="sigp"></div>
+  </div>
+</div>
+
+<div id="main"></div>
+<div class="legend"><span><i style="background:var(--ema1)"></i>EMA 9</span><span><i style="background:var(--ema2)"></i>EMA 21</span><span><i style="background:var(--up)"></i>BUY</span><span><i style="background:var(--down)"></i>SELL</span></div>
+<div id="rsi"></div>
+
+<div class="log">
+  <h2>آخر الإشارات</h2>
+  <table id="logt"><tbody></tbody></table>
+</div>
+<div id="status">…</div>
+
+<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+<script>
+(function(){
+const LC=window.LightweightCharts;
+const $=id=>document.getElementById(id);
+const TFS=['1m','5m','15m','1h','4h','1d'];
+const REST='https://fapi.binance.com/fapi/v1/';
+const WSS='wss://fstream.binance.com/ws/';
+let symbol='BTCUSDT', tf='15m', ws=null, candles=[], cfg;
+
+/* --- charts --- */
+const common={layout:{background:{color:'#121a23'},textColor:'#8b9bab',fontFamily:'IBM Plex Mono, monospace'},
+  grid:{vertLines:{color:'#1a2430'},horzLines:{color:'#1a2430'}},
+  rightPriceScale:{borderColor:'#1f2a36'},timeScale:{borderColor:'#1f2a36',timeVisible:true,secondsVisible:false},
+  crosshair:{mode:0},localization:{locale:'en-US'}};
+const main=LC.createChart($('main'),common);
+const cs=main.addCandlestickSeries({upColor:'#26a69a',downColor:'#ef5350',wickUpColor:'#26a69a',wickDownColor:'#ef5350',borderVisible:false});
+const vol=main.addHistogramSeries({priceFormat:{type:'volume'},priceScaleId:'vol'});
+main.priceScale('vol').applyOptions({scaleMargins:{top:0.82,bottom:0}});
+const e1=main.addLineSeries({color:'#f0b429',lineWidth:2,priceLineVisible:false,lastValueVisible:false});
+const e2=main.addLineSeries({color:'#5b8def',lineWidth:2,priceLineVisible:false,lastValueVisible:false});
+const rsiChart=LC.createChart($('rsi'),common);
+const rs=rsiChart.addLineSeries({color:'#c084fc',lineWidth:2,priceLineVisible:false});
+rs.createPriceLine({price:70,color:'#ef5350',lineWidth:1,lineStyle:2,axisLabelVisible:true,title:''});
+rs.createPriceLine({price:30,color:'#26a69a',lineWidth:1,lineStyle:2,axisLabelVisible:true,title:''});
+rsiChart.priceScale('right').applyOptions({autoScale:false});
+rs.applyOptions({autoscaleInfoProvider:()=>({priceRange:{minValue:0,maxValue:100}})});
+// sync time scales
+let syncing=false;
+function sync(a,b){a.timeScale().subscribeVisibleLogicalRangeChange(r=>{if(syncing||!r)return;syncing=true;b.timeScale().setVisibleLogicalRange(r);syncing=false;});}
+sync(main,rsiChart);sync(rsiChart,main);
+new ResizeObserver(()=>{main.applyOptions({width:$('main').clientWidth,height:$('main').clientHeight});rsiChart.applyOptions({width:$('rsi').clientWidth,height:$('rsi').clientHeight});}).observe(document.body);
+
+/* --- indicators --- */
+function ema(vals,n){const k=2/(n+1);let out=[],p;for(let i=0;i<vals.length;i++){p=i===0?vals[0]:vals[i]*k+p*(1-k);out.push(p);}return out;}
+function rsi(vals,n){let out=new Array(vals.length).fill(null),g=0,l=0;
+  for(let i=1;i<vals.length;i++){const d=vals[i]-vals[i-1];const up=Math.max(d,0),dn=Math.max(-d,0);
+    if(i<=n){g+=up;l+=dn;if(i===n){g/=n;l/=n;out[i]=100-100/(1+(l===0?1e9:g/l));}}
+    else{g=(g*(n-1)+up)/n;l=(l*(n-1)+dn)/n;out[i]=100-100/(1+(l===0?1e9:g/l));}}
+  return out;}
+
+function compute(){
+  const close=candles.map(c=>c.close);
+  const a=ema(close,9),b=ema(close,21),r=rsi(close,14);
+  e1.setData(candles.map((c,i)=>({time:c.time,value:a[i]})).slice(9));
+  e2.setData(candles.map((c,i)=>({time:c.time,value:b[i]})).slice(21));
+  rs.setData(candles.map((c,i)=>({time:c.time,value:r[i]})).filter(x=>x.value!==null));
+  // signals: EMA cross confirmed on closed candles, RSI filter
+  const sigs=[];
+  for(let i=22;i<candles.length-1;i++){
+    const prev=a[i-1]-b[i-1],cur=a[i]-b[i];
+    if(prev<=0&&cur>0&&r[i]<70)sigs.push({i,type:'BUY'});
+    else if(prev>=0&&cur<0&&r[i]>30)sigs.push({i,type:'SELL'});
+  }
+  cs.setMarkers(sigs.map(s=>({time:candles[s.i].time,position:s.type==='BUY'?'belowBar':'aboveBar',
+    color:s.type==='BUY'?'#26a69a':'#ef5350',shape:s.type==='BUY'?'arrowUp':'arrowDown',text:s.type})));
+  // stats
+  const n=candles.length-1, last=candles[n];
+  $('rsiv').textContent=r[n]?r[n].toFixed(1):'—';
+  $('rsiv').className='v '+(r[n]>70?'down':r[n]<30?'up':'');
+  $('emav').textContent=fmt(a[n])+' / '+fmt(b[n]);
+  const s=sigs[sigs.length-1];const box=$('sig');
+  if(s){box.className='stat signal '+s.type.toLowerCase();$('sigt').textContent=s.type;$('sigt').className='big '+(s.type==='BUY'?'up':'down');
+    $('sigw').textContent=(s.type==='BUY'?'تقاطع EMA9 فوق EMA21':'تقاطع EMA9 تحت EMA21')+' · RSI '+r[s.i].toFixed(0)+' · منذ '+(n-s.i)+' شمعة';
+    $('sigp').textContent='@ '+fmt(candles[s.i].close);}
+  else{box.className='stat signal';$('sigt').textContent='—';$('sigw').textContent='لا توجد إشارة بعد';$('sigp').textContent='';}
+  // trend hint when no fresh cross: show bias
+  if(s&&n-s.i>0){$('sigw').textContent+= (a[n]>b[n]?' · الاتجاه صاعد':' · الاتجاه هابط');}
+  const tb=$('logt').tBodies[0];tb.innerHTML='';
+  sigs.slice(-12).reverse().forEach(x=>{const c=candles[x.i];const tr=tb.insertRow();
+    tr.innerHTML='<td>'+new Date(c.time*1000).toLocaleString('en-GB',{hour12:false})+'</td><td class="'+(x.type==='BUY'?'up':'down')+'">'+x.type+'</td><td class="r">'+fmt(c.close)+'</td><td class="r">RSI '+r[x.i].toFixed(0)+'</td>';});
+  $('px').textContent=fmt(last.close);$('px').className='v '+(last.close>=last.open?'up':'down');
+}
+function fmt(v){if(v==null)return'—';const d=v>=1000?2:v>=1?4:6;return Number(v).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});}
+function setStatus(t,err){$('status').textContent=t;$('status').className=err?'err':'';}
+
+/* --- data --- */
+async function load(){
+  symbol=$('sym').value.trim().toUpperCase()||'BTCUSDT';$('sym').value=symbol;
+  setStatus('جاري التحميل '+symbol+' '+tf+'…');
+  try{
+    const [k,t,p]=await Promise.all([
+      fetch(REST+'klines?symbol='+symbol+'&interval='+tf+'&limit=500').then(r=>r.json()),
+      fetch(REST+'ticker/24hr?symbol='+symbol).then(r=>r.json()),
+      fetch(REST+'premiumIndex?symbol='+symbol).then(r=>r.json())]);
+    if(!Array.isArray(k))throw new Error(k.msg||'رمز غير صحيح');
+    candles=k.map(x=>({time:x[0]/1000,open:+x[1],high:+x[2],low:+x[3],close:+x[4],vol:+x[5]}));
+    cs.setData(candles);vol.setData(candles.map(c=>({time:c.time,value:c.vol,color:c.close>=c.open?'rgba(38,166,154,.35)':'rgba(239,83,80,.35)'})));
+    compute();main.timeScale().scrollToRealTime();
+    const ch=+t.priceChangePercent;$('chg').textContent=(ch>=0?'+':'')+ch.toFixed(2)+'%';$('chg').className='v '+(ch>=0?'up':'down');
+    const f=+p.lastFundingRate*100;$('fund').textContent=(f>=0?'+':'')+f.toFixed(4)+'%';$('fund').className='v '+(f>0.01?'down':f<0?'up':'');
+    openWs();setStatus('مباشر · '+symbol+' · '+tf);
+  }catch(e){setStatus('خطأ: '+e.message+' — تأكد من الرمز وفتح الملف في المتصفح',true);}
+}
+function openWs(){
+  if(ws){ws.onclose=null;ws.close();}
+  ws=new WebSocket(WSS+symbol.toLowerCase()+'@kline_'+tf);
+  ws.onmessage=ev=>{const k=JSON.parse(ev.data).k;const c={time:k.t/1000,open:+k.o,high:+k.h,low:+k.l,close:+k.c,vol:+k.v};
+    const last=candles[candles.length-1];
+    if(last&&last.time===c.time)candles[candles.length-1]=c;else if(!last||c.time>last.time){candles.push(c);if(candles.length>600)candles.shift();}
+    cs.update(c);vol.update({time:c.time,value:c.vol,color:c.close>=c.open?'rgba(38,166,154,.35)':'rgba(239,83,80,.35)'});
+    if(k.x||candles.length%5===0)compute();else{$('px').textContent=fmt(c.close);$('px').className='v '+(c.close>=c.open?'up':'down');}};
+  ws.onclose=()=>{setStatus('انقطع الاتصال، إعادة محاولة…');setTimeout(openWs,3000);};
+}
+
+/* --- UI --- */
+TFS.forEach(t=>{const b=document.createElement('button');b.textContent=t;b.className=t===tf?'on':'';b.onclick=()=>{tf=t;[...$('tf').children].forEach(x=>x.className=x.textContent===tf?'on':'');load();};$('tf').appendChild(b);});
+$('go').onclick=load;$('sym').addEventListener('keydown',e=>{if(e.key==='Enter')load();});
+load();
+})();
+</script>
+</body>
+</html>
